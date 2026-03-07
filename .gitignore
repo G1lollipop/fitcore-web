@@ -71,6 +71,9 @@ scripts/
 # Supabase (local config only, keep migrations if needed)
 supabase/
 
+# CSV files (local data files)
+*.csv
+
 # Logs
 logs/
 *.log
