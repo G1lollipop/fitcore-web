@@ -62,6 +62,15 @@ supabase/.env
 # SQL scripts (local development only)
 sql/
 
+# Documentation (local only)
+docs/
+
+# Scripts (local development only)
+scripts/
+
+# Supabase (local config only, keep migrations if needed)
+supabase/
+
 # Logs
 logs/
 *.log
