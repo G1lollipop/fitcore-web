@@ -1,0 +1,71 @@
+# v0 runtime files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js build output
+.next/
+out/
+
+# Production build
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Package manager locks (保留一个即可，根据项目使用 npm/yarn/pnpm)
+# 项目使用 pnpm，所以保留 pnpm-lock.yaml
+# package-lock.json
+# yarn.lock
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Testing
+coverage/
+.nyc_output/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+*.pem
+
+# Vercel
+.vercel/
+
+# Supabase
+supabase/.temp/
+supabase/.env
+
+# Logs
+logs/
+*.log
+
+# Local files
+*.local
+
+# OS files
+Thumbs.db
+.DS_Store
