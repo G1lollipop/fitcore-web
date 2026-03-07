@@ -30,10 +30,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Package manager locks (保留一个即可，根据项目使用 npm/yarn/pnpm)
-# 项目使用 pnpm，所以保留 pnpm-lock.yaml
-# package-lock.json
-# yarn.lock
+# Package manager locks
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
 
 # TypeScript
 *.tsbuildinfo
