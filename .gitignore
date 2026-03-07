@@ -59,6 +59,9 @@ coverage/
 supabase/.temp/
 supabase/.env
 
+# SQL scripts (local development only)
+sql/
+
 # Logs
 logs/
 *.log
