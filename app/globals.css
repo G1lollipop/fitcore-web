@@ -262,3 +262,31 @@
 .clerk-user-button-popover * {
   color: #ffffff !important;
 }
+
+/* Clerk SignIn/SignUp 输入框样式覆盖 */
+.clerk-sign-in-container input,
+.clerk-sign-up-container input,
+.cl-input,
+input[class*="cl-"],
+[class*="cl-formFieldInput"] {
+  background-color: #fafafa !important;
+  color: #18181b !important;
+  border-color: #3f3f46 !important;
+}
+
+.clerk-sign-in-container input::placeholder,
+.clerk-sign-up-container input::placeholder,
+input[class*="cl-"]::placeholder,
+[class*="cl-formFieldInput"]::placeholder {
+  color: #71717a !important;
+}
+
+.clerk-sign-in-container input:focus,
+.clerk-sign-up-container input:focus,
+input[class*="cl-"]:focus,
+[class*="cl-formFieldInput"]:focus {
+  background-color: #ffffff !important;
+  border-color: #f97316 !important;
+  outline: 2px solid #f97316 !important;
+  outline-offset: 1px;
+}

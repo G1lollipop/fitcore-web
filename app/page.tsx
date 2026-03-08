@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useAuth, useUser } from "@clerk/nextjs"
+import { useRouter } from "next/navigation"
 import { SidebarNav } from "@/components/sidebar-nav"
 import { NutritionTracker } from "@/components/nutrition-tracker"
 import { DailyLogForm } from "@/components/daily-log-form"
@@ -18,6 +19,7 @@ import type { DashboardData, WeeklyActivityData, WeeklyWorkoutStats, YesterdayWo
 export default function DashboardPage() {
   const { userId, isLoaded } = useAuth()
   const { user } = useUser()
+  const router = useRouter()
   const [activeNav, setActiveNav] = useState("dashboard")
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
   const [isPageLoading, setIsPageLoading] = useState(true)
@@ -45,6 +47,13 @@ export default function DashboardPage() {
       setIsPageLoading(false)
     }
   }, [currentUserId])
+
+  useEffect(() => {
+    if (isLoaded && !userId) {
+      router.push('/sign-in')
+      return
+    }
+  }, [isLoaded, userId, router])
 
   useEffect(() => {
     if (isLoaded && !dashboardData) {
