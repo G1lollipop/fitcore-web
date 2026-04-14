@@ -1,22 +1,14 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabaseClient';
 import { Database } from '@/lib/database.types';
+import { getTodayDate } from '@/lib/utils/date';
 import type { DashboardData, UserGoals, WeeklyActivityData, WeeklyWorkoutStats, YesterdayWorkoutLog } from './types';
 
 type DailyStatsRow = Database['public']['Tables']['daily_stats']['Row'];
 type DailyStatsInsert = Database['public']['Tables']['daily_stats']['Insert'];
 type UserSettingsRow = Database['public']['Tables']['user_settings']['Row'];
-
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-function getTodayDate(): string {
-  return new Date().toISOString().split('T')[0];
-}
 
 function getWeekBounds(date: Date): { start: Date; end: Date } {
   const d = new Date(date);

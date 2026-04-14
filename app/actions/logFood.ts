@@ -1,28 +1,15 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import OpenAI from 'openai';
-import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'crypto';
+import { openai } from '@/lib/openaiClient';
+import { supabase } from '@/lib/supabaseClient';
 import { Database } from '@/lib/database.types';
+import { getTodayDate } from '@/lib/utils/date';
 import type { DietLogItem, DailyStatsData } from './types';
 
 type DailyStatsRow = Database['public']['Tables']['daily_stats']['Row'];
 type DailyStatsInsert = Database['public']['Tables']['daily_stats']['Insert'];
-type DailyStatsUpdate = Database['public']['Tables']['daily_stats']['Update'];
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-});
-
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-function getTodayDate(): string {
-  return new Date().toISOString().split('T')[0];
-}
 
 async function parseFoodWithAI(userInput: string): Promise<DietLogItem | null> {
   try {
@@ -65,6 +52,7 @@ async function parseFoodWithAI(userInput: string): Promise<DietLogItem | null> {
 
     const parsed = JSON.parse(content);
     const result = {
+      id: randomUUID(),
       food_name: parsed.food_name || '未知食物',
       calories: Math.round(Number(parsed.calories)) || 0,
       protein: Math.round(Number(parsed.protein)) || 0,
@@ -219,14 +207,14 @@ export async function getDailyStats(userId: string): Promise<DailyStatsData | nu
 
 export async function deleteDietLog(
   userId: string,
-  logIndex: number
+  logId: string
 ): Promise<{ success: boolean; error?: string }> {
-  if (!userId || logIndex < 0) {
+  if (!userId || !logId) {
     return { success: false, error: '缺少必要参数' };
   }
 
   const today = getTodayDate();
-  console.log('[deleteDietLog] Deleting log at index:', logIndex, 'for user:', userId);
+  console.log('[deleteDietLog] Deleting log with id:', logId, 'for user:', userId);
 
   const queryResult = await supabase
     .from('daily_stats')
@@ -243,18 +231,18 @@ export async function deleteDietLog(
   }
 
   const currentDietLogs = (existingRecord.diet_logs as DietLogItem[]) || [];
-  
-  if (logIndex >= currentDietLogs.length) {
-    return { success: false, error: '记录索引超出范围' };
+  const targetLog = currentDietLogs.find((log) => log.id === logId);
+
+  if (!targetLog) {
+    return { success: false, error: '未找到该记录' };
   }
 
-  const deletedLog = currentDietLogs[logIndex];
-  const updatedDietLogs = currentDietLogs.filter((_, index) => index !== logIndex);
+  const updatedDietLogs = currentDietLogs.filter((log) => log.id !== logId);
 
-  const newTotalCalories = Math.max(0, (existingRecord.total_calories ?? 0) - (deletedLog.calories || 0));
-  const newTotalProtein = Math.max(0, (existingRecord.total_protein ?? 0) - (deletedLog.protein || 0));
-  const newTotalCarbs = Math.max(0, (existingRecord.total_carbs ?? 0) - (deletedLog.carbs || 0));
-  const newTotalFat = Math.max(0, (existingRecord.total_fat ?? 0) - (deletedLog.fat || 0));
+  const newTotalCalories = Math.max(0, (existingRecord.total_calories ?? 0) - (targetLog.calories || 0));
+  const newTotalProtein = Math.max(0, (existingRecord.total_protein ?? 0) - (targetLog.protein || 0));
+  const newTotalCarbs = Math.max(0, (existingRecord.total_carbs ?? 0) - (targetLog.carbs || 0));
+  const newTotalFat = Math.max(0, (existingRecord.total_fat ?? 0) - (targetLog.fat || 0));
 
   const updateData = {
     total_calories: newTotalCalories,

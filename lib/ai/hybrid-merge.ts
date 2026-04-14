@@ -1,11 +1,6 @@
-import OpenAI from "openai"
+import { openai } from "@/lib/openaiClient"
 
 import type { Citation, UserContextPayload } from "@/lib/ai/types"
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-})
 
 function formatUserContext(ctx: UserContextPayload): string {
   const lines: string[] = []

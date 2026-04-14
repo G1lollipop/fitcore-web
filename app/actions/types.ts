@@ -1,4 +1,5 @@
 export type DietLogItem = {
+  id: string;
   food_name: string;
   calories: number;
   protein: number;
@@ -8,6 +9,7 @@ export type DietLogItem = {
 };
 
 export type WorkoutLogItem = {
+  id: string;
   workout_name: string;
   sets: number | null;
   duration_minutes: number;

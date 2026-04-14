@@ -1,15 +1,10 @@
-import { createClient } from "@supabase/supabase-js"
+import { supabase } from "@/lib/supabaseClient"
 
 import type { Database } from "@/lib/database.types"
 import type { UserContextPayload } from "@/lib/ai/types"
 
 type UserSettingsRow = Database["public"]["Tables"]["user_settings"]["Row"]
 type DailyStatsRow = Database["public"]["Tables"]["daily_stats"]["Row"]
-
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 function getTodayDate(): string {
   return new Date().toISOString().split("T")[0]
@@ -61,6 +56,10 @@ export async function buildUserContext(userId: string): Promise<UserContextPaylo
     plan: {
       currentWorkoutPlan: settings?.current_workout_plan ?? null,
       currentPlanId: settings?.current_plan_id ?? null,
+    },
+    logs: {
+      dietLogs: (dailyStats?.diet_logs as any[]) ?? [],
+      workoutLogs: (dailyStats?.workout_logs as any[]) ?? [],
     },
   }
 }

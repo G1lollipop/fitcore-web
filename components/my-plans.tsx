@@ -13,6 +13,7 @@ import {
 import { logWorkout, batchLogWorkouts } from '@/app/actions/logWorkout';
 import { ExerciseSelector, SelectedExercise } from './exercise-selector';
 import { DailyLogForm } from './daily-log-form';
+import { goalLabels, levelLabels } from '@/lib/labels';
 import type { Database } from '@/lib/database.types';
 import { useToast } from '@/hooks/use-toast';
 
@@ -20,21 +21,6 @@ type WorkoutPlan = Database['public']['Tables']['workout_plans']['Row'];
 type WorkoutDay = Database['public']['Tables']['workout_days']['Row'];
 type PlanExercise = Database['public']['Tables']['plan_exercises']['Row'];
 type Exercise = Database['public']['Tables']['exercises']['Row'];
-
-const goalLabels: Record<string, string> = {
-  'general': '综合训练',
-  'strength': '力量增长',
-  'muscle_gain': '肌肉增长',
-  'fat_loss': '减脂',
-  'endurance': '耐力提升',
-  'flexibility': '柔韧性',
-};
-
-const levelLabels: Record<string, string> = {
-  'beginner': '初级',
-  'intermediate': '中级',
-  'advanced': '高级',
-};
 
 interface PlanWithDays extends WorkoutPlan {
   workout_days?: (WorkoutDay & { plan_exercises?: (PlanExercise & { exercises?: Exercise })[] })[];

@@ -20,6 +20,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { getExercises, getMuscleGroups, getEquipmentList } from '@/app/actions/exercises';
+import { difficultyLabels, categoryLabels } from '@/lib/labels';
 import type { Database } from '@/lib/database.types';
 import type { PaginatedExercises } from '@/app/actions/exercises';
 
@@ -35,19 +36,6 @@ export interface SelectedExercise {
   target_weight_kg?: number;
   muscle_groups: string[];
 }
-
-const difficultyLabels: Record<string, string> = {
-  'beginner': '初级',
-  'intermediate': '中级',
-  'advanced': '高级',
-};
-
-const categoryLabels: Record<string, string> = {
-  'strength': '力量训练',
-  'cardio': '有氧运动',
-  'flexibility': '柔韧性',
-  'plyometric': '爆发力',
-};
 
 interface ExerciseSelectorProps {
   isOpen: boolean;

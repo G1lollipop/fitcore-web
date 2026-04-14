@@ -282,8 +282,8 @@ export function DailyLogForm({
   const [workoutEntries, setWorkoutEntries] = useState<LogEntry[]>([])
 
   useEffect(() => {
-    const entries: LogEntry[] = initialDietLogs.map((log, index) => ({
-      id: `init-diet-${index}`,
+    const entries: LogEntry[] = initialDietLogs.map((log) => ({
+      id: log.id || `legacy-diet-${log.logged_at}`,
       text: log.food_name,
       time: new Date(log.logged_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
     }))
@@ -291,8 +291,8 @@ export function DailyLogForm({
   }, [initialDietLogs])
 
   useEffect(() => {
-    const entries: LogEntry[] = initialWorkoutLogs.map((log, index) => ({
-      id: `init-workout-${index}`,
+    const entries: LogEntry[] = initialWorkoutLogs.map((log) => ({
+      id: log.id || `legacy-workout-${log.logged_at}`,
       text: log.workout_name,
       time: new Date(log.logged_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
     }))
@@ -350,59 +350,47 @@ export function DailyLogForm({
   }
 
   const removeDiet = (id: string) => {
-    const index = dietEntries.findIndex((e) => e.id === id)
-    if (index === -1) return
-    
-    if (id.startsWith('init-diet-')) {
-      const logIndex = parseInt(id.replace('init-diet-', ''))
-      startDietTransition(async () => {
-        const result = await deleteDietLog(userId!, logIndex)
-        if (result.success) {
-          setDietEntries((prev) => prev.filter((e) => e.id !== id))
-          onLogSuccess?.()
-          toast({
-            title: "删除成功",
-            description: "已删除该饮食记录",
-          })
-        } else {
-          toast({
-            variant: "destructive",
-            title: "删除失败",
-            description: result.error || "请稍后重试",
-          })
-        }
-      })
-    } else {
-      setDietEntries((prev) => prev.filter((e) => e.id !== id))
-    }
+    if (!dietEntries.some((e) => e.id === id)) return
+
+    startDietTransition(async () => {
+      const result = await deleteDietLog(userId!, id)
+      if (result.success) {
+        setDietEntries((prev) => prev.filter((e) => e.id !== id))
+        onLogSuccess?.()
+        toast({
+          title: "删除成功",
+          description: "已删除该饮食记录",
+        })
+      } else {
+        toast({
+          variant: "destructive",
+          title: "删除失败",
+          description: result.error || "请稍后重试",
+        })
+      }
+    })
   }
   
   const removeWorkout = (id: string) => {
-    const index = workoutEntries.findIndex((e) => e.id === id)
-    if (index === -1) return
-    
-    if (id.startsWith('init-workout-')) {
-      const logIndex = parseInt(id.replace('init-workout-', ''))
-      startWorkoutTransition(async () => {
-        const result = await deleteWorkoutLog(userId!, logIndex)
-        if (result.success) {
-          setWorkoutEntries((prev) => prev.filter((e) => e.id !== id))
-          onLogSuccess?.()
-          toast({
-            title: "删除成功",
-            description: "已删除该训练记录",
-          })
-        } else {
-          toast({
-            variant: "destructive",
-            title: "删除失败",
-            description: result.error || "请稍后重试",
-          })
-        }
-      })
-    } else {
-      setWorkoutEntries((prev) => prev.filter((e) => e.id !== id))
-    }
+    if (!workoutEntries.some((e) => e.id === id)) return
+
+    startWorkoutTransition(async () => {
+      const result = await deleteWorkoutLog(userId!, id)
+      if (result.success) {
+        setWorkoutEntries((prev) => prev.filter((e) => e.id !== id))
+        onLogSuccess?.()
+        toast({
+          title: "删除成功",
+          description: "已删除该训练记录",
+        })
+      } else {
+        toast({
+          variant: "destructive",
+          title: "删除失败",
+          description: result.error || "请稍后重试",
+        })
+      }
+    })
   }
 
   const handleCopyYesterday = () => {

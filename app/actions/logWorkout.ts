@@ -1,28 +1,15 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import OpenAI from 'openai';
-import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'crypto';
+import { openai } from '@/lib/openaiClient';
+import { supabase } from '@/lib/supabaseClient';
 import { Database } from '@/lib/database.types';
+import { getTodayDate } from '@/lib/utils/date';
 import type { WorkoutLogItem, DailyWorkoutStatsData } from './types';
 
 type DailyStatsRow = Database['public']['Tables']['daily_stats']['Row'];
 type DailyStatsInsert = Database['public']['Tables']['daily_stats']['Insert'];
-type DailyStatsUpdate = Database['public']['Tables']['daily_stats']['Update'];
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-});
-
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-function getTodayDate(): string {
-  return new Date().toISOString().split('T')[0];
-}
 
 async function parseWorkoutWithAI(userInput: string): Promise<WorkoutLogItem | null> {
   try {
@@ -69,6 +56,7 @@ async function parseWorkoutWithAI(userInput: string): Promise<WorkoutLogItem | n
 
     const parsed = JSON.parse(content);
     const result = {
+      id: randomUUID(),
       workout_name: parsed.workout_name || '未知运动',
       sets: parsed.sets ? Math.round(Number(parsed.sets)) : null,
       duration_minutes: Math.round(Number(parsed.duration_minutes)) || 0,
@@ -226,14 +214,14 @@ export async function getDailyWorkoutStats(userId: string): Promise<DailyWorkout
 
 export async function deleteWorkoutLog(
   userId: string,
-  logIndex: number
+  logId: string
 ): Promise<{ success: boolean; error?: string }> {
-  if (!userId || logIndex < 0) {
+  if (!userId || !logId) {
     return { success: false, error: '缺少必要参数' };
   }
 
   const today = getTodayDate();
-  console.log('[deleteWorkoutLog] Deleting log at index:', logIndex, 'for user:', userId);
+  console.log('[deleteWorkoutLog] Deleting log with id:', logId, 'for user:', userId);
 
   const queryResult = await supabase
     .from('daily_stats')
@@ -250,16 +238,16 @@ export async function deleteWorkoutLog(
   }
 
   const currentWorkoutLogs = (existingRecord.workout_logs as WorkoutLogItem[]) || [];
-  
-  if (logIndex >= currentWorkoutLogs.length) {
-    return { success: false, error: '记录索引超出范围' };
+  const targetLog = currentWorkoutLogs.find((log) => log.id === logId);
+
+  if (!targetLog) {
+    return { success: false, error: '未找到该记录' };
   }
 
-  const deletedLog = currentWorkoutLogs[logIndex];
-  const updatedWorkoutLogs = currentWorkoutLogs.filter((_, index) => index !== logIndex);
+  const updatedWorkoutLogs = currentWorkoutLogs.filter((log) => log.id !== logId);
 
-  const newCaloriesBurned = Math.max(0, (existingRecord.calories_burned ?? 0) - (deletedLog.calories_burned || 0));
-  const newWorkoutDuration = Math.max(0, (existingRecord.workout_duration ?? 0) - (deletedLog.duration_minutes || 0));
+  const newCaloriesBurned = Math.max(0, (existingRecord.calories_burned ?? 0) - (targetLog.calories_burned || 0));
+  const newWorkoutDuration = Math.max(0, (existingRecord.workout_duration ?? 0) - (targetLog.duration_minutes || 0));
 
   const updateData = {
     calories_burned: newCaloriesBurned,
@@ -310,6 +298,7 @@ export async function batchLogWorkouts(
 
   const now = new Date().toISOString();
   const newWorkoutLogs: WorkoutLogItem[] = workouts.map(w => ({
+    id: randomUUID(),
     workout_name: w.name,
     sets: w.sets || null,
     duration_minutes: w.duration_minutes || 0,

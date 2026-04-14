@@ -1,20 +1,10 @@
 'use server';
 
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabaseClient';
 import { Database } from '@/lib/database.types';
-import OpenAI from 'openai';
+import { openai } from '@/lib/openaiClient';
 
 type UserSettingsInsert = Database['public']['Tables']['user_settings']['Insert'];
-
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-});
 
 export interface OnboardingData {
   gender: 'male' | 'female';
