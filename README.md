@@ -2,7 +2,7 @@
 
 > 基于 RAG + Agent Tool Calling 的全栈 AI 健身教练平台
 
-**Live Demo:** [fitcore.vercel.app](https://fitcore-web-eight.vercel.app/) <!-- 替换为你的实际域名 -->
+**Live Demo:** [fitcore-web-eight.vercel.app](https://fitcore-web-eight.vercel.app/)
 
 ---
 
