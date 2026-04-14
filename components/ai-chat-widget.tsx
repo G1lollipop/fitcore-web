@@ -1,31 +1,38 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
-import { Bot, Send, X, Minimize2, Maximize2, Zap, Loader2, ChevronDown, Trash2 } from "lucide-react"
+import { useState, useRef, useEffect, useMemo, useCallback } from "react"
+import { Bot, Send, X, Minimize2, Maximize2, Zap, Loader2, ChevronDown, Trash2, MessageSquarePlus } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { clearChatHistory, getChatHistory } from "@/app/actions/chat"
+import {
+  clearChatHistory,
+  getChatHistory,
+  listChatConversations,
+  type ChatConversationSummary,
+} from "@/app/actions/chat"
 import {
   createConversationId,
   loadOrCreateConversationId,
   persistConversationId,
 } from "@/lib/ai/conversation-id"
-import type { AIChatResponse, ChatMode, Citation } from "@/lib/ai/types"
+import type { AgentMode, AgentSSEEvent, Citation } from "@/lib/ai/types"
 
 interface Message {
   id: string
   role: "user" | "assistant"
   content: string
   timestamp: string
-  /** 来自 /api/ai/chat；历史记录加载时通常为空 */
-  mode?: ChatMode
+  mode?: AgentMode
   citations?: Citation[]
-  intentReason?: string
+  toolsUsed?: string[]
+  /** 正在流式输出中 */
+  isStreaming?: boolean
 }
 
-const MODE_LABEL: Record<ChatMode, string> = {
+const MODE_LABEL: Record<AgentMode, string> = {
+  knowledge: "知识库",
   personal: "个人",
-  rag: "知识库",
   hybrid: "混合",
+  direct: "直接",
 }
 
 function isHttpUrl(s: string) {
@@ -76,6 +83,14 @@ const SUGGESTED = [
   "帮我制定本周训练计划",
   "我的蛋白质够吗？",
 ]
+
+function sessionSelectLabel(c: ChatConversationSummary, activeId: string): string {
+  const short = c.conversationId === activeId ? "当前" : `…${c.conversationId.slice(-6)}`
+  const d = c.lastAt ? new Date(c.lastAt) : new Date()
+  const md = `${(d.getMonth() + 1).toString().padStart(2, "0")}/${d.getDate().toString().padStart(2, "0")}`
+  const pv = (c.preview || "").replace(/\s+/g, " ").slice(0, 20)
+  return pv ? `${short} ${md} · ${pv}` : `${short} ${md}`
+}
 
 function TypingIndicator() {
   return (
@@ -133,6 +148,9 @@ function ChatBody({
                 )}
               >
                 {msg.content}
+                {msg.isStreaming && (
+                  <span className="inline-block w-0.5 h-3.5 bg-foreground/60 ml-0.5 align-middle animate-pulse" />
+                )}
               </div>
               {msg.role === "assistant" ? (
                 <>
@@ -141,7 +159,7 @@ function ChatBody({
                       {msg.mode ? (
                         <span
                           className="text-[10px] rounded-md border border-border bg-background/80 px-1.5 py-0.5 text-muted-foreground shrink-0"
-                          title={msg.intentReason || undefined}
+                          title={msg.toolsUsed?.length ? `工具: ${msg.toolsUsed.join(", ")}` : undefined}
                         >
                           {MODE_LABEL[msg.mode]}
                         </span>
@@ -159,7 +177,8 @@ function ChatBody({
             </div>
           </div>
         ))}
-        {isTyping && (
+        {/* 仅当等待第一个 token 时显示点点（流式气泡出现后自动消失） */}
+        {isTyping && !messages.some((m) => m.isStreaming) && (
           <div className="flex gap-2">
             <div className="shrink-0 w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center mt-0.5">
               <Bot size={12} className="text-primary" />
@@ -218,53 +237,95 @@ export function AIChatWidget({ userId }: AIChatWidgetProps) {
   const [messages, setMessages] = useState<Message[]>([])
   /** 与 RAG session 对齐；按 userId 存 localStorage，刷新不丢 */
   const [conversationId, setConversationId] = useState("")
+  const [conversations, setConversations] = useState<ChatConversationSummary[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const now = () => {
+    const d = new Date()
+    return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`
+  }
+
+  const welcomeMessages = (): Message[] => [
+    {
+      id: "0",
+      role: "assistant",
+      content: "你好，我是你的 AI 健身教练！我已分析你今日的饮食和训练记录。有什么想问我的吗？",
+      timestamp: now(),
+    },
+  ]
+
+  const refreshConversationSummaries = useCallback(async () => {
+    const r = await listChatConversations(userId)
+    if (r.success && r.conversations) setConversations(r.conversations)
+  }, [userId])
+
+  const loadChatHistoryFor = useCallback(
+    async (cid: string) => {
+      if (!cid) return
+      setIsLoadingHistory(true)
+      const result = await getChatHistory(userId, cid, 80)
+      if (result.success && result.messages && result.messages.length > 0) {
+        const loadedMessages: Message[] = result.messages.map((m, index) => ({
+          id: `history-${index}`,
+          role: m.role,
+          content: m.content,
+          timestamp: "",
+        }))
+        setMessages(loadedMessages)
+      } else {
+        setMessages(welcomeMessages())
+      }
+      setIsLoadingHistory(false)
+    },
+    [userId]
+  )
+
   useEffect(() => {
     if (!userId) return
-    setConversationId(loadOrCreateConversationId(userId))
-    loadChatHistory()
-  }, [userId])
+    const cid = loadOrCreateConversationId(userId)
+    setConversationId(cid)
+    void refreshConversationSummaries()
+    void loadChatHistoryFor(cid)
+  }, [userId, loadChatHistoryFor, refreshConversationSummaries])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, isTyping])
 
-  const loadChatHistory = async () => {
-    setIsLoadingHistory(true)
-    console.log('[AIChatWidget] 加载聊天历史, userId:', userId)
-    
-    const result = await getChatHistory(userId, 20)
-    console.log('[AIChatWidget] 加载结果:', result)
-    
-    if (result.success && result.messages && result.messages.length > 0) {
-      const loadedMessages: Message[] = result.messages.map((m, index) => ({
-        id: `history-${index}`,
-        role: m.role,
-        content: m.content,
-        timestamp: "",
-      }))
-      console.log('[AIChatWidget] 加载的消息数量:', loadedMessages.length)
-      setMessages(loadedMessages)
-    } else {
-      console.log('[AIChatWidget] 没有历史消息，显示欢迎消息')
-      setMessages([
-        {
-          id: "0",
-          role: "assistant",
-          content: "你好，我是你的 AI 健身教练！我已分析你今日的饮食和训练记录。有什么想问我的吗？",
-          timestamp: now(),
-        },
-      ])
+  const sessionOptions = useMemo(() => {
+    const base = [...conversations]
+    if (conversationId && !base.some((c) => c.conversationId === conversationId)) {
+      base.unshift({
+        conversationId,
+        lastAt: new Date().toISOString(),
+        preview: "（当前新会话）",
+      })
     }
-    setIsLoadingHistory(false)
+    return base
+  }, [conversations, conversationId])
+
+  const switchConversation = (cid: string) => {
+    if (!cid || cid === conversationId) return
+    persistConversationId(userId, cid)
+    setConversationId(cid)
+    void loadChatHistoryFor(cid)
+    void refreshConversationSummaries()
+  }
+
+  const startNewChat = () => {
+    const next = createConversationId(userId)
+    persistConversationId(userId, next)
+    setConversationId(next)
+    setMessages(welcomeMessages())
+    void refreshConversationSummaries()
   }
 
   const handleClearHistory = async () => {
-    if (!confirm("确定要清除所有聊天记录吗？")) return
-    
-    const result = await clearChatHistory(userId)
+    if (!conversationId) return
+    if (!confirm("确定清除当前会话的所有消息？")) return
+
+    const result = await clearChatHistory(userId, conversationId)
     if (result.success) {
       const next = createConversationId(userId)
       persistConversationId(userId, next)
@@ -273,77 +334,123 @@ export function AIChatWidget({ userId }: AIChatWidgetProps) {
         {
           id: "0",
           role: "assistant",
-          content: "聊天记录已清除。有什么新问题想问我吗？",
+          content: "当前会话已清除。有什么新问题想问我吗？",
           timestamp: now(),
         },
       ])
+      void refreshConversationSummaries()
     }
-  }
-
-  const now = () => {
-    const d = new Date()
-    return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`
   }
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || isTyping) return
-    
+
     const userMsg: Message = {
       id: Date.now().toString(),
       role: "user",
       content: text.trim(),
       timestamp: now(),
     }
-    
-    const updatedMessages = [...messages, userMsg]
-    setMessages(updatedMessages)
+    setMessages((prev) => [...prev, userMsg])
     setInput("")
     setIsTyping(true)
 
-    console.log('=== AI 健身教练对话记录 ===')
-    console.log(`[${now()}] 用户: ${text.trim()}`)
-    console.log('[sendMessage] 当前消息列表:', updatedMessages.length, '条')
+    // 立即插入一个空的流式气泡，让用户看到 AI 在"思考"
+    const aiMsgId = `ai-${Date.now()}`
+    setMessages((prev) => [
+      ...prev,
+      { id: aiMsgId, role: "assistant", content: "", timestamp: now(), isStreaming: true },
+    ])
 
     try {
       const response = await fetch("/api/ai/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text.trim(),
           conversationId: conversationId || undefined,
         }),
       })
 
-      const payload = (await response.json()) as AIChatResponse & { error?: string }
-      if (!response.ok || !payload.answer) {
-        throw new Error(payload.error || "抱歉，我暂时无法回答，请稍后再试。")
+      if (!response.ok || !response.body) {
+        throw new Error(`请求失败 (${response.status})`)
       }
 
-      const aiMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: payload.answer,
-        timestamp: now(),
-        mode: payload.mode,
-        citations: payload.citations,
-        intentReason: payload.meta?.intent,
+      // 读取 SSE 流
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        // SSE 每条消息以 \n\n 结尾
+        const lines = buffer.split("\n\n")
+        buffer = lines.pop() ?? ""
+
+        for (const block of lines) {
+          const dataLine = block.split("\n").find((l) => l.startsWith("data: "))
+          if (!dataLine) continue
+          const jsonStr = dataLine.slice(6).trim()
+          if (!jsonStr) continue
+
+          let event: AgentSSEEvent
+          try {
+            event = JSON.parse(jsonStr)
+          } catch {
+            continue
+          }
+
+          if (event.type === "token") {
+            // 每个 token 到来时实时追加到气泡
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === aiMsgId ? { ...m, content: m.content + event.content } : m
+              )
+            )
+          } else if (event.type === "done") {
+            // 流结束：补充元数据，移除 isStreaming 状态
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === aiMsgId
+                  ? {
+                      ...m,
+                      isStreaming: false,
+                      mode: event.mode,
+                      citations: event.citations ?? [],
+                      toolsUsed: event.toolsUsed ?? [],
+                    }
+                  : m
+              )
+            )
+            void refreshConversationSummaries()
+          } else if (event.type === "error") {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === aiMsgId
+                  ? { ...m, content: event.message || "抱歉，发生了错误", isStreaming: false }
+                  : m
+              )
+            )
+          }
+        }
       }
-      setMessages((prev) => [...prev, aiMsg])
-      console.log(`[${now()}] AI: ${payload.answer}`)
-      console.log("[sendMessage] 返回模式:", payload.mode, "引用数:", payload.citations?.length ?? 0)
     } catch (error) {
-      const errorMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: error instanceof Error ? error.message : "抱歉，我暂时无法回答，请稍后再试。",
-        timestamp: now(),
-      }
-      setMessages((prev) => [...prev, errorMsg])
-      console.error(`[${now()}] AI 错误:`, error)
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId
+            ? {
+                ...m,
+                content: error instanceof Error ? error.message : "抱歉，我暂时无法回答，请稍后再试。",
+                isStreaming: false,
+              }
+            : m
+        )
+      )
+      console.error("[sendMessage] 错误:", error)
     } finally {
-      console.log('========================')
       setIsTyping(false)
     }
   }
@@ -381,9 +488,37 @@ export function AIChatWidget({ userId }: AIChatWidgetProps) {
           <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-primary shadow-lg shadow-primary/30 shrink-0">
             <Zap size={17} className="text-primary-foreground" strokeWidth={2.5} />
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 flex flex-col gap-1.5">
             <p className="text-sm font-bold text-foreground leading-none">AI 健身教练</p>
-            <div className="flex items-center gap-1.5 mt-0.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              {conversationId ? (
+              <select
+                value={conversationId}
+                onChange={(e) => switchConversation(e.target.value)}
+                disabled={isTyping}
+                className="min-w-0 flex-1 max-w-[200px] text-[11px] bg-secondary border border-border rounded-lg px-2 py-1.5 truncate"
+                aria-label="切换会话"
+              >
+                {sessionOptions.map((c) => (
+                  <option key={c.conversationId} value={c.conversationId}>
+                    {sessionSelectLabel(c, conversationId)}
+                  </option>
+                ))}
+              </select>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">加载会话…</span>
+              )}
+              <button
+                type="button"
+                onClick={startNewChat}
+                disabled={isTyping}
+                className="shrink-0 p-2 rounded-lg bg-secondary border border-border text-muted-foreground hover:text-foreground disabled:opacity-50"
+                aria-label="新建会话"
+              >
+                <MessageSquarePlus size={16} />
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
               <span className="text-[10px] text-muted-foreground">个性化建议</span>
             </div>
@@ -391,7 +526,7 @@ export function AIChatWidget({ userId }: AIChatWidgetProps) {
           <button
             onClick={handleClearHistory}
             className="p-2 rounded-xl bg-secondary border border-border text-muted-foreground hover:text-destructive transition-colors"
-            aria-label="清除聊天记录"
+            aria-label="清除当前会话"
           >
             <Trash2 size={16} />
           </button>
@@ -424,9 +559,37 @@ export function AIChatWidget({ userId }: AIChatWidgetProps) {
           <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-primary shadow-lg shadow-primary/30 shrink-0">
             <Zap size={15} className="text-primary-foreground" strokeWidth={2.5} />
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 flex flex-col gap-1">
             <p className="text-sm font-bold text-foreground leading-none">AI 健身教练</p>
-            <div className="flex items-center gap-1.5 mt-0.5">
+            <div className="flex items-center gap-1 min-w-0">
+              {conversationId ? (
+              <select
+                value={conversationId}
+                onChange={(e) => switchConversation(e.target.value)}
+                disabled={isTyping}
+                className="min-w-0 flex-1 text-[11px] bg-background/80 border border-border rounded-md px-1.5 py-1 truncate"
+                aria-label="切换会话"
+              >
+                {sessionOptions.map((c) => (
+                  <option key={c.conversationId} value={c.conversationId}>
+                    {sessionSelectLabel(c, conversationId)}
+                  </option>
+                ))}
+              </select>
+              ) : (
+                <span className="text-[10px] text-muted-foreground">加载…</span>
+              )}
+              <button
+                type="button"
+                onClick={startNewChat}
+                disabled={isTyping}
+                className="shrink-0 p-1 rounded-md border border-border bg-background/80 text-muted-foreground hover:text-foreground disabled:opacity-50"
+                aria-label="新建会话"
+              >
+                <MessageSquarePlus size={14} />
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
               <span className="text-[10px] text-muted-foreground">个性化建议</span>
             </div>
@@ -435,7 +598,7 @@ export function AIChatWidget({ userId }: AIChatWidgetProps) {
             <button
               onClick={handleClearHistory}
               className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors"
-              aria-label="清除聊天记录"
+              aria-label="清除当前会话"
             >
               <Trash2 size={13} />
             </button>
