@@ -85,3 +85,6 @@ logs/
 # OS files
 Thumbs.db
 .DS_Store
+
+# clerk configuration (can include secrets)
+/.clerk/

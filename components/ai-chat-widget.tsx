@@ -3,13 +3,68 @@
 import { useState, useRef, useEffect } from "react"
 import { Bot, Send, X, Minimize2, Maximize2, Zap, Loader2, ChevronDown, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { chatWithAI, getChatHistory, saveChatMessage, clearChatHistory, ChatMessage } from "@/app/actions/chat"
+import { clearChatHistory, getChatHistory } from "@/app/actions/chat"
+import {
+  createConversationId,
+  loadOrCreateConversationId,
+  persistConversationId,
+} from "@/lib/ai/conversation-id"
+import type { AIChatResponse, ChatMode, Citation } from "@/lib/ai/types"
 
 interface Message {
   id: string
   role: "user" | "assistant"
   content: string
   timestamp: string
+  /** 来自 /api/ai/chat；历史记录加载时通常为空 */
+  mode?: ChatMode
+  citations?: Citation[]
+  intentReason?: string
+}
+
+const MODE_LABEL: Record<ChatMode, string> = {
+  personal: "个人",
+  rag: "知识库",
+  hybrid: "混合",
+}
+
+function isHttpUrl(s: string) {
+  return /^https?:\/\//i.test(s.trim())
+}
+
+function CitationsList({ citations }: { citations: Citation[] }) {
+  if (citations.length === 0) return null
+  return (
+    <div className="mt-1 w-full max-w-[260px] rounded-lg border border-border/70 bg-muted/25 px-2 py-1.5 space-y-1.5">
+      <p className="text-[10px] font-medium text-muted-foreground tracking-wide">引用</p>
+      <ul className="space-y-1.5">
+        {citations.map((c, i) => (
+          <li key={c.id ?? `${c.source}-${i}`} className="text-[10px] leading-snug text-foreground/90">
+            <span className="font-medium text-foreground">{i + 1}. {c.title}</span>
+            {c.source ? (
+              <div className="mt-0.5 text-muted-foreground break-all">
+                {isHttpUrl(c.source) ? (
+                  <a
+                    href={c.source.trim()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-2 hover:text-primary"
+                  >
+                    {c.source}
+                  </a>
+                ) : (
+                  <span>{c.source}</span>
+                )}
+              </div>
+            ) : null}
+            {c.snippet ? (
+              <p className="mt-0.5 text-muted-foreground line-clamp-2">{c.snippet}</p>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 interface AIChatWidgetProps {
@@ -79,7 +134,28 @@ function ChatBody({
               >
                 {msg.content}
               </div>
-              <span className="text-[10px] text-muted-foreground px-1">{msg.timestamp}</span>
+              {msg.role === "assistant" ? (
+                <>
+                  {msg.mode || msg.timestamp ? (
+                    <div className="flex flex-wrap items-center gap-1.5 px-1 max-w-[260px]">
+                      {msg.mode ? (
+                        <span
+                          className="text-[10px] rounded-md border border-border bg-background/80 px-1.5 py-0.5 text-muted-foreground shrink-0"
+                          title={msg.intentReason || undefined}
+                        >
+                          {MODE_LABEL[msg.mode]}
+                        </span>
+                      ) : null}
+                      {msg.timestamp ? (
+                        <span className="text-[10px] text-muted-foreground">{msg.timestamp}</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <CitationsList citations={msg.citations ?? []} />
+                </>
+              ) : (
+                <span className="text-[10px] text-muted-foreground px-1">{msg.timestamp}</span>
+              )}
             </div>
           </div>
         ))}
@@ -140,13 +216,15 @@ export function AIChatWidget({ userId }: AIChatWidgetProps) {
   const [isTyping, setIsTyping] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
   const [messages, setMessages] = useState<Message[]>([])
+  /** 与 RAG session 对齐；按 userId 存 localStorage，刷新不丢 */
+  const [conversationId, setConversationId] = useState("")
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (userId) {
-      loadChatHistory()
-    }
+    if (!userId) return
+    setConversationId(loadOrCreateConversationId(userId))
+    loadChatHistory()
   }, [userId])
 
   useEffect(() => {
@@ -188,6 +266,9 @@ export function AIChatWidget({ userId }: AIChatWidgetProps) {
     
     const result = await clearChatHistory(userId)
     if (result.success) {
+      const next = createConversationId(userId)
+      persistConversationId(userId, next)
+      setConversationId(next)
       setMessages([
         {
           id: "0",
@@ -223,41 +304,48 @@ export function AIChatWidget({ userId }: AIChatWidgetProps) {
     console.log(`[${now()}] 用户: ${text.trim()}`)
     console.log('[sendMessage] 当前消息列表:', updatedMessages.length, '条')
 
-    await saveChatMessage(userId, 'user', text.trim())
+    try {
+      const response = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: text.trim(),
+          conversationId: conversationId || undefined,
+        }),
+      })
 
-    const chatHistory: ChatMessage[] = updatedMessages
-      .slice(-10)
-      .map(m => ({ role: m.role, content: m.content }))
-    
-    console.log('[sendMessage] 发送给AI的历史消息:', chatHistory.length, '条')
-    console.log('[sendMessage] 历史消息内容:', JSON.stringify(chatHistory, null, 2))
+      const payload = (await response.json()) as AIChatResponse & { error?: string }
+      if (!response.ok || !payload.answer) {
+        throw new Error(payload.error || "抱歉，我暂时无法回答，请稍后再试。")
+      }
 
-    const result = await chatWithAI(userId, chatHistory)
-
-    if (result.success && result.reply) {
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: result.reply,
+        content: payload.answer,
         timestamp: now(),
+        mode: payload.mode,
+        citations: payload.citations,
+        intentReason: payload.meta?.intent,
       }
       setMessages((prev) => [...prev, aiMsg])
-      console.log(`[${now()}] AI: ${result.reply}`)
-      
-      await saveChatMessage(userId, 'assistant', result.reply)
-    } else {
+      console.log(`[${now()}] AI: ${payload.answer}`)
+      console.log("[sendMessage] 返回模式:", payload.mode, "引用数:", payload.citations?.length ?? 0)
+    } catch (error) {
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: result.error || "抱歉，我暂时无法回答，请稍后再试。",
+        content: error instanceof Error ? error.message : "抱歉，我暂时无法回答，请稍后再试。",
         timestamp: now(),
       }
       setMessages((prev) => [...prev, errorMsg])
-      console.error(`[${now()}] AI 错误: ${result.error}`)
+      console.error(`[${now()}] AI 错误:`, error)
+    } finally {
+      console.log('========================')
+      setIsTyping(false)
     }
-    
-    console.log('========================')
-    setIsTyping(false)
   }
 
   const chatBodyProps = { 
