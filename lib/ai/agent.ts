@@ -225,6 +225,7 @@ export async function runAgent(params: {
     // 先扫描一遍 tool_calls，提取 set_retrieval_params 的 k 值
     // （query_knowledge_base 执行时需要用到 k，所以要先拿到）
     for (const toolCall of planChoice.message.tool_calls) {
+      if (!("function" in toolCall)) continue
       if (toolCall.function.name === "set_retrieval_params") {
         try {
           const args = JSON.parse(toolCall.function.arguments || "{}")
@@ -240,6 +241,9 @@ export async function runAgent(params: {
     // 并行执行所有工具
     const toolResults = await Promise.all(
       planChoice.message.tool_calls.map(async (toolCall) => {
+        if (!("function" in toolCall)) {
+          return { role: "tool" as const, tool_call_id: toolCall.id, content: "unsupported tool type" }
+        }
         const toolName = toolCall.function.name
         let args: Record<string, unknown> = {}
         try {
