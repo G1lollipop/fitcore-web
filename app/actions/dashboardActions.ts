@@ -4,7 +4,17 @@ import { revalidatePath } from 'next/cache';
 import { supabase } from '@/lib/supabaseClient';
 import { Database } from '@/lib/database.types';
 import { getTodayDate } from '@/lib/utils/date';
-import type { DashboardData, UserGoals, WeeklyActivityData, WeeklyWorkoutStats, YesterdayWorkoutLog } from './types';
+import type {
+  DashboardData,
+  DietLogItem,
+  UserGoals,
+  WeeklyActivityData,
+  WeeklyTrendData,
+  WeeklyTrendDay,
+  WeeklyWorkoutStats,
+  WorkoutLogItem,
+  YesterdayWorkoutLog,
+} from './types';
 
 type DailyStatsRow = Database['public']['Tables']['daily_stats']['Row'];
 type DailyStatsInsert = Database['public']['Tables']['daily_stats']['Insert'];
@@ -355,6 +365,85 @@ export async function getWeeklyActivity(userId: string): Promise<WeeklyActivityD
   };
 }
 
+const TREND_DAY_LABELS = ['一', '二', '三', '四', '五', '六', '日'] as const;
+
+function emptyTrend(today: Date): WeeklyTrendData {
+  const todayIndex = getTodayWeekIndex();
+  const { start } = getWeekBounds(today);
+  const days: WeeklyTrendDay[] = TREND_DAY_LABELS.map((label, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return {
+      dateIso: d.toISOString().split('T')[0],
+      dayLabel: label,
+      kcalIntake: 0,
+      kcalBurn: 0,
+      workoutMinutes: 0,
+      isToday: i === todayIndex,
+    };
+  });
+  return { days, weekLabel: getWeekLabel(today), todayIndex, maxKcal: 0 };
+}
+
+/**
+ * Pulls the current week's daily_stats in a single query and shapes it as
+ * 7 ordered (monday→sunday) trend cells with intake, burn, and workout
+ * minutes per day. Used by the dashboard bento weekly heat-row.
+ */
+export async function getWeeklyTrend(userId: string): Promise<WeeklyTrendData> {
+  const today = new Date();
+  if (!userId) return emptyTrend(today);
+
+  const { start, end } = getWeekBounds(today);
+  const startStr = start.toISOString().split('T')[0];
+  const endStr = end.toISOString().split('T')[0];
+
+  const { data, error } = await supabase
+    .from('daily_stats')
+    .select('date, total_calories, calories_burned, workout_duration')
+    .eq('user_id', userId)
+    .gte('date', startStr)
+    .lte('date', endStr);
+
+  if (error) {
+    console.error('[getWeeklyTrend] Query error:', error);
+    return emptyTrend(today);
+  }
+
+  const byDate = new Map<string, { intake: number; burn: number; minutes: number }>();
+  (data ?? []).forEach((row) => {
+    byDate.set(row.date, {
+      intake: row.total_calories ?? 0,
+      burn: row.calories_burned ?? 0,
+      minutes: row.workout_duration ?? 0,
+    });
+  });
+
+  const todayIndex = getTodayWeekIndex();
+  let maxKcal = 0;
+
+  const days: WeeklyTrendDay[] = TREND_DAY_LABELS.map((label, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const iso = d.toISOString().split('T')[0];
+    const row = byDate.get(iso);
+    const kcalIntake = row?.intake ?? 0;
+    const kcalBurn = row?.burn ?? 0;
+    if (kcalIntake > maxKcal) maxKcal = kcalIntake;
+    if (kcalBurn > maxKcal) maxKcal = kcalBurn;
+    return {
+      dateIso: iso,
+      dayLabel: label,
+      kcalIntake,
+      kcalBurn,
+      workoutMinutes: row?.minutes ?? 0,
+      isToday: i === todayIndex,
+    };
+  });
+
+  return { days, weekLabel: getWeekLabel(today), todayIndex, maxKcal };
+}
+
 export async function getWeeklyWorkoutStats(userId: string): Promise<WeeklyWorkoutStats> {
   const defaultResult: WeeklyWorkoutStats = {
     daysThisWeek: 0,
@@ -432,7 +521,7 @@ export async function getDashboardData(userId: string): Promise<DashboardData | 
 
   const today = getTodayDate();
 
-  const [goals, dailyStatsResult, weeklyActivity, weeklyWorkoutStats, yesterdayWorkout, todayWorkout] = await Promise.all([
+  const [goals, dailyStatsResult, weeklyActivity, weeklyTrend, weeklyWorkoutStats, yesterdayWorkout, todayWorkout] = await Promise.all([
     getUserGoals(userId),
     supabase
       .from('daily_stats')
@@ -441,6 +530,7 @@ export async function getDashboardData(userId: string): Promise<DashboardData | 
       .eq('date', today)
       .single(),
     getWeeklyActivity(userId),
+    getWeeklyTrend(userId),
     getWeeklyWorkoutStats(userId),
     getYesterdayWorkout(userId),
     getTodayWorkoutData(userId),
@@ -470,10 +560,14 @@ export async function getDashboardData(userId: string): Promise<DashboardData | 
       calories_burned: dailyStats?.calories_burned || 0,
       workout_duration: dailyStats?.workout_duration || 0,
       water_intake: dailyStats?.water_intake || 0,
-      diet_logs: (dailyStats?.diet_logs as any[]) || [],
-      workout_logs: (dailyStats?.workout_logs as any[]) || [],
+      // Supabase JSONB columns are typed as `Json` (a recursive union); we
+      // control what gets written into these columns from logFood/logWorkout,
+      // so it's safe to assert the documented shape here.
+      diet_logs: (dailyStats?.diet_logs as DietLogItem[] | null) ?? [],
+      workout_logs: (dailyStats?.workout_logs as WorkoutLogItem[] | null) ?? [],
     },
     weeklyActivity,
+    weeklyTrend,
     weeklyWorkoutStats,
     yesterdayWorkout,
     todayWorkout,

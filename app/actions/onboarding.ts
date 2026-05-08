@@ -3,6 +3,7 @@
 import { supabase } from '@/lib/supabaseClient';
 import { Database } from '@/lib/database.types';
 import { openai } from '@/lib/openaiClient';
+import { AI_FAST_MODEL } from '@/lib/ai/model';
 
 type UserSettingsInsert = Database['public']['Tables']['user_settings']['Insert'];
 
@@ -85,7 +86,7 @@ export async function calculateNutritionRecommendation(
 3. 不要重复列出数据，直接给建议`;
 
     const response = await openai.chat.completions.create({
-      model: 'qwen-turbo',
+      model: AI_FAST_MODEL,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.7,
       max_tokens: 200,

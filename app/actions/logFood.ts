@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
 import { openai } from '@/lib/openaiClient';
 import { supabase } from '@/lib/supabaseClient';
+import { AI_FAST_MODEL } from '@/lib/ai/model';
 import { Database } from '@/lib/database.types';
 import { getTodayDate } from '@/lib/utils/date';
 import type { DietLogItem, DailyStatsData } from './types';
@@ -14,7 +15,7 @@ type DailyStatsInsert = Database['public']['Tables']['daily_stats']['Insert'];
 async function parseFoodWithAI(userInput: string): Promise<DietLogItem | null> {
   try {
     const response = await openai.chat.completions.create({
-      model: 'qwen-turbo',
+      model: AI_FAST_MODEL,
       messages: [
         {
           role: 'system',

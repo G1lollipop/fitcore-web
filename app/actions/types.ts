@@ -50,14 +50,30 @@ export type TodayStats = {
   calories_burned: number;
   workout_duration: number;
   water_intake: number;
-  diet_logs: any[];
-  workout_logs: any[];
+  diet_logs: DietLogItem[];
+  workout_logs: WorkoutLogItem[];
 };
 
 export type WeeklyActivityData = {
   values: number[];
   weekLabel: string;
   todayIndex: number;
+};
+
+export type WeeklyTrendDay = {
+  dateIso: string;          // 'YYYY-MM-DD'
+  dayLabel: string;         // '一'..'日'
+  kcalIntake: number;
+  kcalBurn: number;
+  workoutMinutes: number;
+  isToday: boolean;
+};
+
+export type WeeklyTrendData = {
+  days: WeeklyTrendDay[];   // length 7, monday → sunday
+  weekLabel: string;
+  todayIndex: number;
+  maxKcal: number;          // peak intake or burn across the week (for bar scaling)
 };
 
 export type WeeklyWorkoutStats = {
@@ -80,6 +96,7 @@ export type DashboardData = {
   goals: UserGoals;
   today: TodayStats;
   weeklyActivity?: WeeklyActivityData;
+  weeklyTrend?: WeeklyTrendData;
   weeklyWorkoutStats?: WeeklyWorkoutStats;
   yesterdayWorkout?: YesterdayWorkoutLog;
   todayWorkout?: TodayWorkoutInfo;

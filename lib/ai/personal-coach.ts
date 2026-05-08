@@ -1,4 +1,5 @@
 import { openai } from "@/lib/openaiClient"
+import { AI_CHAT_MODEL } from "@/lib/ai/model"
 
 import { buildUserContext } from "@/lib/ai/user-context"
 import { buildCoachSystemPrompt } from "@/lib/ai/system-prompt"
@@ -22,7 +23,7 @@ export async function coachChatWithHistory(
   const apiMessages = [{ role: "system" as const, content: systemPrompt }, ...messages]
 
   const response = await openai.chat.completions.create({
-    model: "qwen-turbo",
+    model: AI_CHAT_MODEL,
     messages: apiMessages,
     temperature: 0.8,
     max_tokens: 800,

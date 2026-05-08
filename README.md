@@ -44,8 +44,8 @@ flowchart TD
     end
 
     subgraph LLM ["LLM · Alibaba DashScope"]
-        Qwen1["qwen-plus\nAgent 规划（低温度）"]
-        Qwen2["qwen-plus\n流式生成（高温度）"]
+        Qwen1["qwen3.5-flash\nAgent 规划（低温度）"]
+        Qwen2["qwen3.5-flash\n流式生成（高温度）"]
     end
 
     User -->|"输入消息"| Widget
@@ -86,7 +86,7 @@ flowchart TD
 | **RAG 框架** | LangChain 1.2 · LangChain Community |
 | **向量数据库** | Supabase pgvector（生产）· Chroma（本地） |
 | **Embedding 模型** | DashScope text-embedding-v4（1024 维） |
-| **Chat 模型** | Alibaba Qwen (qwen-plus / qwen3-max) via DashScope |
+| **Chat 模型** | Alibaba Qwen (默认 qwen3.5-flash，可通过环境变量切换) via DashScope |
 | **重排序** | HuggingFace CrossEncoder (bge-reranker-base) |
 | **数据库** | Supabase PostgreSQL |
 | **部署** | Vercel（前端）· 自有服务器（RAG 后端） |
@@ -214,6 +214,8 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 OPENAI_API_KEY=          # DashScope API Key（OpenAI 兼容）
 OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+AI_CHAT_MODEL=qwen3.5-flash
+AI_FAST_MODEL=qwen3.5-flash
 RAG_SERVICE_URL=http://your-rag-server:8000
 ```
 
@@ -221,9 +223,11 @@ RAG_SERVICE_URL=http://your-rag-server:8000
 
 ```env
 DASHSCOPE_API_KEY=
+RAG_CHAT_MODEL=qwen3.5-flash
 VECTOR_BACKEND=supabase          # 或 chroma
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 RERANKER_ENABLED=true
 RERANKER_MODEL_NAME=             # HuggingFace model id，或留空用本地路径
+EVAL_JUDGE_MODEL=qwen3.5-flash
 ```

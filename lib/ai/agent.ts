@@ -43,6 +43,7 @@
  */
 
 import { openai } from "@/lib/openaiClient"
+import { AI_CHAT_MODEL } from "@/lib/ai/model"
 import type { Citation, AgentMode, UserContextPayload } from "@/lib/ai/types"
 import { chatWithRagRetrieve } from "@/lib/ai/rag-client"
 import type { CoachChatMessage } from "@/lib/ai/personal-coach"
@@ -208,7 +209,7 @@ export async function runAgent(params: {
   // LLM 一次性输出所有工具调用（可并行）：
   //   e.g. [set_retrieval_params(k=8, reason="..."), query_knowledge_base("深蹲和硬拉区别")]
   const planResponse = await openai.chat.completions.create({
-    model: "qwen-plus",
+    model: AI_CHAT_MODEL,
     messages,
     tools: TOOLS,
     tool_choice: "auto",
@@ -301,7 +302,7 @@ export async function runAgent(params: {
 
   // ── Step 3: 流式生成最终回答 ─────────────────────────────────────────────
   const streamResponse = await openai.chat.completions.create({
-    model: "qwen-plus",
+    model: AI_CHAT_MODEL,
     messages,
     stream: true,
     temperature: 0.7,

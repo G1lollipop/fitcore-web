@@ -88,3 +88,9 @@ Thumbs.db
 
 # clerk configuration (can include secrets)
 /.clerk/
+
+# Claude Code local config & memory (per-developer, not shared)
+.claude/
+
+# ESLint / Next cache
+.eslintcache

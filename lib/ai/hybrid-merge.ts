@@ -1,4 +1,5 @@
 import { openai } from "@/lib/openaiClient"
+import { AI_FAST_MODEL } from "@/lib/ai/model"
 
 import type { Citation, UserContextPayload } from "@/lib/ai/types"
 
@@ -79,7 +80,7 @@ ${citationsText}
 请输出最终回答。`
 
   const response = await openai.chat.completions.create({
-    model: "qwen-turbo",
+    model: AI_FAST_MODEL,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
