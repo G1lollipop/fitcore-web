@@ -2,22 +2,12 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { AnimatePresence, motion } from 'framer-motion'
-import {
-  CornerDownLeft,
-  Dumbbell,
-  Flame,
-  Loader2,
-  Sparkles,
-  UtensilsCrossed,
-  X,
-} from 'lucide-react'
+import { CornerDownLeft, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useToast } from '@/hooks/use-toast'
 import { useQuickLog } from '@/hooks/use-quick-log'
 import { quickLog, type QuickLogResult } from '@/app/actions/quickLog'
 import { cn } from '@/lib/utils'
-
-type Phase = 'idle' | 'parsing' | 'success' | 'error'
 
 const SUGGESTIONS = [
   '鸡胸肉 200g',
@@ -27,52 +17,65 @@ const SUGGESTIONS = [
   '吃了 30g 蛋白粉，做了俯卧撑 50 个',
 ] as const
 
+/**
+ * Floating "⌘K" command bar.
+ *
+ * Behavior: the modal closes the instant the user submits — parsing runs
+ * in the background and feedback is delivered via the toast manager. This
+ * keeps the UI fluid even when the LLM call takes 2-5s; the user can keep
+ * working (or queue another entry) without waiting on the dialog.
+ */
 export function QuickLogBar() {
   const { open, setOpen, userId, onLogged } = useQuickLog()
   const { toast } = useToast()
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [text, setText] = useState('')
-  const [phase, setPhase] = useState<Phase>('idle')
-  const [results, setResults] = useState<QuickLogResult[]>([])
   const [recents, setRecents] = useState<string[]>([])
 
-  // Reset transient state whenever the dialog re-opens. Recents persist for
-  // the lifetime of the page (intentionally local — not in DB).
+  // Reset input + restore focus whenever the dialog re-opens. Recents persist
+  // for the lifetime of the page (intentionally local — not in DB).
   useEffect(() => {
     if (!open) return
     setText('')
-    setPhase('idle')
-    setResults([])
-    // Radix manages focus for us, but we want the cursor in the input even
-    // when the dialog content was already mounted from a previous open.
     requestAnimationFrame(() => inputRef.current?.focus())
   }, [open])
 
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = useCallback(() => {
     const trimmed = text.trim()
-    if (!trimmed || phase === 'parsing') return
+    if (!trimmed) return
     if (!userId) {
       toast({ variant: 'destructive', title: '尚未登录', description: '请先登录后再记录' })
       return
     }
 
-    setPhase('parsing')
-    const res = await quickLog(trimmed, userId)
-    if (!res.success) {
-      setPhase('error')
-      toast({ variant: 'destructive', title: '记录失败', description: res.error })
-      return
-    }
-
-    setResults(res.items)
-    setPhase('success')
+    // Optimistic UX: close the dialog and stash the input into recents
+    // immediately. Parsing happens off the critical path via the toast.
+    setOpen(false)
     setRecents((prev) => [trimmed, ...prev.filter((r) => r !== trimmed)].slice(0, 5))
-    onLogged?.()
 
-    const summary = summarizeResults(res.items)
-    toast({ title: '已记录', description: summary })
-  }, [text, phase, userId, toast, onLogged])
+    const loading = toast({ title: '正在解析', description: `「${trimmed}」` })
+
+    void (async () => {
+      try {
+        const res = await quickLog(trimmed, userId)
+        loading.dismiss()
+        if (!res.success) {
+          toast({ variant: 'destructive', title: '记录失败', description: res.error })
+          return
+        }
+        onLogged?.()
+        toast({ title: '已记录', description: summarizeResults(res.items) })
+      } catch (err) {
+        loading.dismiss()
+        toast({
+          variant: 'destructive',
+          title: '记录失败',
+          description: err instanceof Error ? err.message : '请稍后再试',
+        })
+      }
+    })()
+  }, [text, userId, toast, onLogged, setOpen])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -117,22 +120,13 @@ export function QuickLogBar() {
                   onChange={setText}
                   onSubmit={handleSubmit}
                   onKeyDown={onKeyDown}
-                  phase={phase}
                   disabled={!userId}
                 />
 
                 <Body
-                  phase={phase}
-                  results={results}
                   recents={recents}
                   onPick={(s) => {
                     setText(s)
-                    inputRef.current?.focus()
-                  }}
-                  onAnother={() => {
-                    setText('')
-                    setPhase('idle')
-                    setResults([])
                     inputRef.current?.focus()
                   }}
                 />
@@ -178,13 +172,10 @@ interface InputRowProps {
   onChange: (v: string) => void
   onSubmit: () => void
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void
-  phase: Phase
   disabled?: boolean
 }
 
-function InputRow({ inputRef, value, onChange, onSubmit, onKeyDown, phase, disabled }: InputRowProps) {
-  const isParsing = phase === 'parsing'
-
+function InputRow({ inputRef, value, onChange, onSubmit, onKeyDown, disabled }: InputRowProps) {
   return (
     <div className="relative px-4 pt-4 pb-3">
       <div
@@ -194,15 +185,7 @@ function InputRow({ inputRef, value, onChange, onSubmit, onKeyDown, phase, disab
           disabled ? 'opacity-60' : ''
         )}
       >
-        <motion.span
-          animate={isParsing ? { rotate: 360 } : { rotate: 0 }}
-          transition={
-            isParsing ? { repeat: Infinity, duration: 1.6, ease: 'linear' } : { duration: 0 }
-          }
-          className="shrink-0 text-primary"
-        >
-          {isParsing ? <Loader2 size={16} /> : <Sparkles size={16} />}
-        </motion.span>
+        <Sparkles size={16} className="shrink-0 text-primary" />
         <input
           ref={inputRef}
           data-quicklog-input
@@ -210,119 +193,55 @@ function InputRow({ inputRef, value, onChange, onSubmit, onKeyDown, phase, disab
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
-          disabled={disabled || isParsing}
+          disabled={disabled}
           placeholder="说说你刚吃了什么 / 练了什么…  比如「鸡胸肉200g + 跑步30分钟」"
           className="flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
         />
         <button
           type="button"
           onClick={onSubmit}
-          disabled={disabled || isParsing || !value.trim()}
+          disabled={disabled || !value.trim()}
           className={cn(
             'inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium transition-all',
-            value.trim() && !isParsing
+            value.trim()
               ? 'bg-primary text-primary-foreground hover:bg-primary/90'
               : 'bg-secondary text-muted-foreground'
           )}
         >
-          {isParsing ? '解析中' : '记录'}
+          记录
           <CornerDownLeft size={12} />
         </button>
       </div>
-
-      {isParsing && (
-        <motion.div
-          aria-hidden
-          initial={{ scaleX: 0 }}
-          animate={{ scaleX: 1 }}
-          transition={{ duration: 1.4, ease: 'easeInOut' }}
-          className="absolute bottom-2 left-4 right-4 h-px origin-left bg-gradient-to-r from-transparent via-primary to-transparent"
-        />
-      )}
     </div>
   )
 }
 
 interface BodyProps {
-  phase: Phase
-  results: QuickLogResult[]
   recents: string[]
   onPick: (s: string) => void
-  onAnother: () => void
 }
 
-function Body({ phase, results, recents, onPick, onAnother }: BodyProps) {
+function Body({ recents, onPick }: BodyProps) {
   return (
     <div className="px-4 pb-4 min-h-[148px]">
-      <AnimatePresence mode="wait">
-        {phase === 'success' ? (
-          <motion.div
-            key="success"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.25 }}
-            className="space-y-2"
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              已记录 · {results.length} 项
-            </p>
-            <motion.ul
-              initial="hidden"
-              animate="show"
-              variants={{ hidden: {}, show: { transition: { staggerChildren: 0.06 } } }}
-              className="space-y-2"
-            >
-              {results.map((r) => (
-                <ResultChip key={r.id} item={r} />
-              ))}
-            </motion.ul>
-            <button
-              type="button"
-              onClick={onAnother}
-              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-            >
-              再记一条
-              <CornerDownLeft size={11} />
-            </button>
-          </motion.div>
-        ) : phase === 'parsing' ? (
-          <motion.div
-            key="parsing"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="space-y-3"
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              AI 正在解析
-            </p>
-            <ShimmerRow />
-            <ShimmerRow widthClass="w-3/4" />
-          </motion.div>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="space-y-3"
+      >
+        {recents.length > 0 ? (
+          <Section title="最近输入">
+            <ChipRow items={recents} onPick={onPick} />
+          </Section>
         ) : (
-          <motion.div
-            key="idle"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="space-y-3"
-          >
-            {recents.length > 0 ? (
-              <Section title="最近输入">
-                <ChipRow items={recents} onPick={onPick} />
-              </Section>
-            ) : (
-              <Section title="试试这些">
-                <ChipRow items={SUGGESTIONS as readonly string[]} onPick={onPick} />
-              </Section>
-            )}
-            <p className="pt-1 text-[11px] text-muted-foreground">
-              支持一句话同时记录饮食和训练，AI 会自动拆分。
-            </p>
-          </motion.div>
+          <Section title="试试这些">
+            <ChipRow items={SUGGESTIONS as readonly string[]} onPick={onPick} />
+          </Section>
         )}
-      </AnimatePresence>
+        <p className="pt-1 text-[11px] text-muted-foreground">
+          支持一句话同时记录饮食和训练，AI 会自动拆分。提交后可继续操作，结果稍后通过通知告知你。
+        </p>
+      </motion.div>
     </div>
   )
 }
@@ -351,68 +270,6 @@ function ChipRow({ items, onPick }: { items: readonly string[]; onPick: (s: stri
           {s}
         </button>
       ))}
-    </div>
-  )
-}
-
-function ResultChip({ item }: { item: QuickLogResult }) {
-  const isFood = item.kind === 'food'
-  const Icon = isFood ? UtensilsCrossed : Dumbbell
-  return (
-    <motion.li
-      variants={{
-        hidden: { opacity: 0, y: 8 },
-        show: { opacity: 1, y: 0, transition: { duration: 0.32, ease: [0.16, 1, 0.3, 1] as const } },
-      }}
-      className={cn(
-        'flex items-center gap-3 rounded-xl border px-3 py-2.5',
-        isFood ? 'border-primary/25 bg-primary/[0.04]' : 'border-accent/40 bg-accent/[0.08]'
-      )}
-    >
-      <span
-        className={cn(
-          'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-          isFood ? 'bg-primary/15 text-primary' : 'bg-accent/30 text-accent-foreground'
-        )}
-      >
-        <Icon size={14} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">{item.name}</p>
-        <p className="text-[11px] text-muted-foreground">
-          {isFood
-            ? `${item.calories} kcal · 蛋白 ${item.protein}g · 碳水 ${item.carbs}g · 脂肪 ${item.fat}g`
-            : `${item.durationMinutes} 分钟${
-                item.sets ? ` · ${item.sets} 组` : ''
-              } · 消耗 ${item.caloriesBurned} kcal`}
-        </p>
-      </div>
-      <span
-        className={cn(
-          'flex shrink-0 items-center gap-0.5 text-[11px] font-medium tabular-nums',
-          isFood ? 'text-primary' : 'text-accent-foreground'
-        )}
-      >
-        {isFood ? (
-          <>+{item.calories} kcal</>
-        ) : (
-          <>
-            <Flame size={11} />−{item.caloriesBurned}
-          </>
-        )}
-      </span>
-    </motion.li>
-  )
-}
-
-function ShimmerRow({ widthClass = 'w-full' }: { widthClass?: string }) {
-  return (
-    <div className={cn('relative h-9 overflow-hidden rounded-xl bg-secondary/60', widthClass)}>
-      <motion.div
-        className="absolute inset-y-0 -left-1/3 w-1/3 bg-gradient-to-r from-transparent via-foreground/10 to-transparent"
-        animate={{ x: ['0%', '300%'] }}
-        transition={{ repeat: Infinity, duration: 1.2, ease: 'linear' }}
-      />
     </div>
   )
 }

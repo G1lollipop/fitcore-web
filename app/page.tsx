@@ -27,6 +27,17 @@ const AIChatWidget = dynamic(
   { ssr: false }
 )
 
+/**
+ * Meal-photo FAB — opens a dialog that captures/uploads a meal photo, runs
+ * Gemini vision to estimate macros, and saves to today's diet log after the
+ * user confirms. Lazy because the dialog + image-compress code is only
+ * needed when the user clicks the FAB.
+ */
+const MealPhotoUpload = dynamic(
+  () => import('@/components/log-form/meal-photo-upload').then((m) => m.MealPhotoUpload),
+  { ssr: false }
+)
+
 function getGreeting(): string {
   const hour = new Date().getHours()
   if (hour < 6) return '夜深了'
@@ -94,7 +105,14 @@ export default function DashboardPage() {
       userName={userName}
       userId={currentUserId}
       onQuickLogged={handleLogSuccess}
-      overlay={currentUserId ? <AIChatWidget userId={currentUserId} /> : undefined}
+      overlay={
+        currentUserId ? (
+          <>
+            <AIChatWidget userId={currentUserId} />
+            <MealPhotoUpload userId={currentUserId} onSuccess={handleLogSuccess} />
+          </>
+        ) : undefined
+      }
     >
       {activeNav === 'dashboard' && (
         <>
